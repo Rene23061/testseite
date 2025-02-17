@@ -6,30 +6,46 @@ def connect_db():
     """Stellt eine Verbindung zur PostgreSQL-Datenbank her."""
     return psycopg2.connect(**DB_CONFIG)
 
-# 📌 Nutzer hinzufügen (wenn noch nicht vorhanden)
+# 📌 Nutzer speichern
 def add_user(telegram_id, group_id):
-    """Fügt einen neuen Nutzer hinzu oder ignoriert ihn, wenn er bereits existiert."""
+    """Speichert einen neuen Nutzer oder ignoriert ihn, falls er schon existiert."""
     conn = connect_db()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO users (telegram_id, group_id, total_bookings, total_cancellations, vip_status) 
-        VALUES (%s, %s, 0, 0, FALSE) 
+        INSERT INTO users (telegram_id, group_id) 
+        VALUES (%s, %s) 
         ON CONFLICT (telegram_id, group_id) DO NOTHING;
     """, (telegram_id, group_id))
     conn.commit()
     cursor.close()
     conn.close()
 
-# 📌 Einzelbuchung speichern
-def add_booking(user_id, provider_id, group_id, date_time, extras=None):
-    """Speichert eine neue Einzelbuchung in der Datenbank."""
+# 📌 Menü-Text & Button-Namen aus DB holen
+def get_menu_text(group_id):
+    """Holt den Startmenü-Text & die Button-Namen aus der Datenbank."""
     conn = connect_db()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO bookings (user_id, provider_id, group_id, date_time, status, payment_status, extras_selected)
-        VALUES (%s, %s, %s, %s, 'Offen', 'Offen', %s)
+        SELECT menu_text, button_single, button_event FROM groups WHERE group_id = %s;
+    """, (group_id,))
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    if result:
+        return result  # (menu_text, button_single, button_event)
+    else:
+        return ("Willkommen! Wähle deine Buchung:", "📅 Einzelbuchung", "🎉 Event-Buchung")
+
+# 📌 Einzelbuchung speichern
+def add_booking(user_id, provider_id, group_id, date_time, extras=None):
+    """Speichert eine neue Einzelbuchung."""
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO bookings (user_id, provider_id, group_id, date_time, status)
+        VALUES (%s, %s, %s, %s, 'Offen')
         RETURNING booking_id;
-    """, (user_id, provider_id, group_id, date_time, extras))
+    """, (user_id, provider_id, group_id, date_time))
     booking_id = cursor.fetchone()[0]
     conn.commit()
     cursor.close()
@@ -37,49 +53,20 @@ def add_booking(user_id, provider_id, group_id, date_time, extras=None):
     return booking_id
 
 # 📌 Event-Buchung speichern
-def add_event_booking(user_id, event_id, status):
+def add_event_booking(user_id, event_id):
     """Speichert eine Event-Buchung."""
     conn = connect_db()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO event_bookings (user_id, event_id, status)
-        VALUES (%s, %s, %s)
+        VALUES (%s, %s, 'Bestätigt')
         RETURNING id;
-    """, (user_id, event_id, status))
+    """, (user_id, event_id))
     booking_id = cursor.fetchone()[0]
     conn.commit()
     cursor.close()
     conn.close()
     return booking_id
-
-# 📌 Blacklist-Eintrag hinzufügen
-def add_to_blacklist(user_id, reason):
-    """Fügt einen Nutzer zur globalen Blacklist hinzu."""
-    conn = connect_db()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO blacklist (user_id, reason, total_strikes)
-        VALUES (%s, %s, 1)
-        ON CONFLICT (user_id) DO UPDATE 
-        SET total_strikes = blacklist.total_strikes + 1;
-    """, (user_id, reason))
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-# 📌 Erinnerungen abrufen
-def get_reminder(provider_id, group_id, reminder_type):
-    """Holt einen Erinnerungstext für Buchungen oder Events."""
-    conn = connect_db()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT reminder_text FROM reminders 
-        WHERE provider_id = %s AND group_id = %s AND type = %s;
-    """, (provider_id, group_id, reminder_type))
-    result = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    return result[0] if result else None
 
 if __name__ == "__main__":
     print("✅ Datenbank-Funktionen bereit!")
