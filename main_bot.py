@@ -1,12 +1,8 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from src.config import BOT_TOKEN
 
-# Noch nicht vorhanden → vorerst auskommentieren
-# from src.single_booking_bot import start_single_booking
-# from src.gangbang_bot import start_gangbang_booking
-
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Begrüßt den Nutzer und zeigt das Hauptmenü."""
     keyboard = [
         [InlineKeyboardButton("📅 Einzeltermin buchen", callback_data="single")],
@@ -14,33 +10,30 @@ def start(update: Update, context: CallbackContext):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    update.message.reply_text(
+    await update.message.reply_text(
         "👋 Willkommen!\n\nWähle aus, was du buchen möchtest:",
         reply_markup=reply_markup
     )
 
-def button_handler(update: Update, context: CallbackContext):
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Verarbeitet die Auswahl aus dem Hauptmenü."""
     query = update.callback_query
-    query.answer()
+    await query.answer()
     
     if query.data == "single":
-        query.message.reply_text("📅 Einzeltermin-Buchung ist bald verfügbar!")
-        # start_single_booking(update, context)  # Noch nicht fertig
+        await query.message.reply_text("📅 Einzeltermin-Buchung ist bald verfügbar!")
     elif query.data == "gangbang":
-        query.message.reply_text("🎉 Event-Buchung ist bald verfügbar!")
-        # start_gangbang_booking(update, context)  # Noch nicht fertig
+        await query.message.reply_text("🎉 Event-Buchung ist bald verfügbar!")
 
 def main():
     """Startet den Telegram-Bot."""
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_handler))
     
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CallbackQueryHandler(button_handler))
-    
-    updater.start_polling()
-    updater.idle()
+    print("✅ Bot ist online!")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
