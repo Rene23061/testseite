@@ -1,16 +1,25 @@
 import psycopg2
-from psycopg2 import OperationalError
+from psycopg2 import sql
 from src.config import DB_CONFIG
 
-def test_db_connection():
-    """Testet die Verbindung zur PostgreSQL-Datenbank."""
-    try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        print("✅ Verbindung zur Datenbank erfolgreich!")
-        conn.close()
-    except OperationalError as e:
-        print(f"❌ Fehler bei der Datenbankverbindung: {e}")
+def connect_db():
+    """Verbindet sich mit der Datenbank und gibt die Verbindung zurück."""
+    return psycopg2.connect(**DB_CONFIG)
 
-# Falls die Datei direkt ausgeführt wird, testen wir die Verbindung
+def add_booking(user_id, provider_id, group_id, date_time, extras=None):
+    """Fügt eine neue Buchung in die Datenbank ein."""
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO bookings (user_id, provider_id, group_id, date_time, status, payment_status, extras_selected)
+        VALUES (%s, %s, %s, %s, 'Offen', 'Offen', %s)
+        RETURNING booking_id;
+    """, (user_id, provider_id, group_id, date_time, extras))
+    booking_id = cursor.fetchone()[0]
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return booking_id
+
 if __name__ == "__main__":
-    test_db_connection()
+    print("✅ Datenbank-Funktionen bereit!")
