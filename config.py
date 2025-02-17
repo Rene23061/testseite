@@ -1,7 +1,9 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv("config.env")  # Lädt jetzt config.env statt .env
+# Sicherstellen, dass config.env geladen wird
+env_path = "/root/eventbot/config.env"
+load_dotenv(env_path)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
