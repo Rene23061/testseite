@@ -1,102 +1,87 @@
 import logging
-import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from database import add_user, is_admin, get_menu_text
+from config import BOT_TOKEN
 
-# Logging aktivieren
+# Logging einrichten
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Verbindung zur SQLite-Datenbank herstellen
-DB_PATH = "eventbot.db"  # Pfad zur SQLite-Datenbank
-
-def connect_db():
-    """Verbindet sich mit der SQLite-Datenbank."""
-    return sqlite3.connect(DB_PATH)
-
-# Admin-Check Funktion
-async def is_admin(update: Update, context: CallbackContext) -> bool:
-    """Prüft, ob der Benutzer ein Admin in der Gruppe ist."""
+# Start-Funktion für den Bot
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
-    chat_id = update.message.chat.id
+    chat_id = update.effective_chat.id
 
-    try:
-        chat_admins = await context.bot.get_chat_administrators(chat_id)
-        return any(admin.user.id == user_id for admin in chat_admins)
-    except Exception as e:
-        logger.error(f"Fehler beim Abrufen der Admins: {e}")
-        return False
+    # Nutzer zur Datenbank hinzufügen
+    add_user(user_id, chat_id)
 
-# Begrüßungsnachricht mit Inline-Buttons
-async def start(update: Update, context: CallbackContext) -> None:
-    """Reagiert auf /start und leitet Nutzer ins Menü."""
+    # Prüfen, ob der Nutzer Admin ist
+    admin_status = is_admin(user_id, chat_id)
+
+    # Menü-Text und Buttons aus der Datenbank holen
+    menu_text, button_single, button_event = get_menu_text(chat_id)
+
+    # Standardwerte setzen, falls keine Daten vorhanden sind
+    if not menu_text:
+        menu_text = "Willkommen! Wähle eine Option:"
+    if not button_single:
+        button_single = "Einzeltermin buchen"
+    if not button_event:
+        button_event = "Event buchen"
+
+    keyboard = [
+        [InlineKeyboardButton(button_single, callback_data="single")],
+        [InlineKeyboardButton(button_event, callback_data="event")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Nachricht mit Auswahl senden
+    await context.bot.send_message(chat_id=user_id, text=menu_text, reply_markup=reply_markup)
+
+    # Wenn der Nutzer ein Admin ist, Admin-Panel anzeigen
+    if admin_status:
+        await show_admin_panel(update, context)
+
+# Admin-Panel anzeigen
+async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
-    chat_id = update.message.chat.id
 
-    if await is_admin(update, context):  # Prüft, ob der User ein Admin ist
-        await update.message.reply_text("👑 Willkommen im Admin-Panel!\nWähle eine Option:", reply_markup=admin_menu())
-    else:
-        await update.message.reply_text("📩 Bitte schreibe mir privat, um einen Termin zu buchen.", reply_markup=user_menu())
-
-# Admin-Panel Buttons
-def admin_menu():
-    """Erstellt die Inline-Tastatur für das Admin-Panel."""
     keyboard = [
-        [InlineKeyboardButton("📜 Texte & Bilder", callback_data="admin_texts")],
-        [InlineKeyboardButton("📅 Termine verwalten", callback_data="admin_appointments")],
-        [InlineKeyboardButton("🔄 Schließen", callback_data="admin_close")]
+        [InlineKeyboardButton("Einstellungen", callback_data="admin_settings")],
+        [InlineKeyboardButton("Termine verwalten", callback_data="admin_appointments")],
+        [InlineKeyboardButton("Schließen", callback_data="close")],
     ]
-    return InlineKeyboardMarkup(keyboard)
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-# User-Menü Buttons
-def user_menu():
-    """Erstellt die Inline-Tastatur für normale Benutzer."""
-    keyboard = [
-        [InlineKeyboardButton("📆 Einzeltermin buchen", callback_data="book_single")],
-        [InlineKeyboardButton("🎉 Event buchen", callback_data="book_event")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    await context.bot.send_message(chat_id=user_id, text="🔧 Admin-Panel", reply_markup=reply_markup)
 
-# Callback-Handler für Admin-Buttons
-async def admin_callback(update: Update, context: CallbackContext) -> None:
-    """Verarbeitet die Auswahl im Admin-Panel."""
+# Callback-Handler für Buttons
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
+    query.answer()
 
-    if query.data == "admin_texts":
-        await query.edit_message_text("📜 Hier kannst du Begrüßungstext & Bild ändern.")
+    if query.data == "single":
+        await query.edit_message_text("Du hast Einzelbuchung gewählt.")
+    elif query.data == "event":
+        await query.edit_message_text("Du hast Event-Buchung gewählt.")
+    elif query.data == "admin_settings":
+        await query.edit_message_text("⚙️ Admin-Einstellungen")
     elif query.data == "admin_appointments":
-        await query.edit_message_text("📅 Hier kannst du Termine verwalten.")
-    elif query.data == "admin_close":
-        await query.edit_message_text("🔄 Admin-Panel geschlossen.")
+        await query.edit_message_text("📅 Terminverwaltung")
+    elif query.data == "close":
+        await query.edit_message_text("Admin-Panel geschlossen.")
 
-# Callback-Handler für User-Buttons
-async def user_callback(update: Update, context: CallbackContext) -> None:
-    """Verarbeitet die Auswahl im Benutzer-Menü."""
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "book_single":
-        await query.edit_message_text("📆 Einzeltermin gebucht! 🎉")
-    elif query.data == "book_event":
-        await query.edit_message_text("🎉 Eventbuchung bestätigt! 🎟")
-
-# Hauptfunktion zum Starten des Bots
+# Hauptfunktion für den Bot
 def main():
-    """Startet den Bot."""
-    application = Application.builder().token("DEIN_BOT_TOKEN").build()
+    application = Application.builder().token(BOT_TOKEN).build()
 
-    # Befehle hinzufügen
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_handler, pattern=".*"))
 
-    # Callback-Handler für Inline-Buttons
-    application.add_handler(CallbackQueryHandler(admin_callback, pattern="admin_.*"))
-    application.add_handler(CallbackQueryHandler(user_callback, pattern="book_.*"))
-
-    logger.info("🤖 Bot läuft...")
+    logger.info("Bot gestartet...")
     application.run_polling()
 
 if __name__ == "__main__":
