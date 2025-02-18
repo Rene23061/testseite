@@ -1,4 +1,4 @@
 import os
 
-BOT_TOKEN = "DEIN_TELEGRAM_BOT_TOKEN"
+BOT_TOKEN = "7602237214:AAGfXV521eMpigD36E26eVwPt7xbAkgiMCs"
 DB_PATH = "/root/eventbot/eventbot.db"
