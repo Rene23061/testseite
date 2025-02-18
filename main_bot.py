@@ -1,81 +1,77 @@
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from database import add_user, is_admin
 from config import BOT_TOKEN
-from database import initialize_database, add_group, add_user, is_admin
-import logging
 
 # Logging einrichten
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Datenbank initialisieren
-initialize_database()
-
-# Funktion zum Starten der Gruppenregistrierung (nur für Admins)
-async def start_termin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat = update.effective_chat
-    user = update.effective_user
-
-    if chat.type != "supergroup" and chat.type != "group":
-        await update.message.reply_text("Dieser Befehl kann nur in Gruppen ausgeführt werden!")
-        return
-
-    add_group(chat.id, user.id, chat.title)
-    await update.message.reply_text(f"✅ Die Gruppe **{chat.title}** wurde erfolgreich registriert!")
-
-# Funktion, die auf den Start-Link reagiert
+# Funktion zum Starten des Bots und zur Erfassung des Users
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     chat_id = update.effective_chat.id
     user_id = user.id
 
-    # Überprüfen, ob der Nutzer Admin ist
+    # Nutzer zur Datenbank hinzufügen
+    add_user(user_id, chat_id)
+
+    # Prüfen, ob der Nutzer Admin ist
     admin_status = is_admin(user_id)
 
-    # Nutzer registrieren
-    add_user(user_id, chat_id, is_admin=admin_status)
-
     if admin_status:
-        await admin_panel(update, context)
+        await update.message.reply_text(
+            "🔧 Willkommen im Admin-Panel!\nHier kannst du Einstellungen vornehmen.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Einstellungen", callback_data="admin_settings")]
+            ]),
+        )
     else:
-        await show_booking_options(update, context)
+        await update.message.reply_text(
+            "Willkommen! Bitte wähle eine Option:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Einzelbuchung", callback_data="booking_single")],
+                [InlineKeyboardButton("Eventbuchung", callback_data="booking_event")],
+            ]),
+        )
 
-# Funktion zum Anzeigen des Admin-Panels
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    keyboard = [
-        [InlineKeyboardButton("📄 Begrüßungstext ändern", callback_data="admin_edit_text")],
-        [InlineKeyboardButton("🔘 Button-Namen ändern", callback_data="admin_edit_buttons")],
-        [InlineKeyboardButton("❌ Admin-Panel schließen", callback_data="admin_close")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("🔧 **Admin-Panel**\nWähle eine Option:", reply_markup=reply_markup)
+# Funktion für den Befehl /starttermin (nur für Admins)
+async def starttermin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
 
-# Funktion zum Anzeigen der Buchungsoptionen für Nutzer
-async def show_booking_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    keyboard = [
-        [InlineKeyboardButton("👤 Einzel-Termin", callback_data="booking_single")],
-        [InlineKeyboardButton("👥 Event-Termin", callback_data="booking_event")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Willkommen! Wähle eine Option:", reply_markup=reply_markup)
+    if not is_admin(user_id):
+        await update.message.reply_text("🚫 Du bist kein Admin und kannst diesen Befehl nicht ausführen.")
+        return
 
-# Hauptfunktion zum Starten des Bots
+    await update.message.reply_text(
+        "✅ Gruppe wurde registriert! Der Bot ist jetzt aktiv."
+    )
+
+# Callback-Funktion für Buttons
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "admin_settings":
+        await query.message.reply_text("Hier kannst du deine Einstellungen ändern.")
+    elif query.data == "booking_single":
+        await query.message.reply_text("Du hast eine Einzelbuchung gewählt.")
+    elif query.data == "booking_event":
+        await query.message.reply_text("Du hast eine Eventbuchung gewählt.")
+
+# Hauptfunktion
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Handler für Befehle
-    application.add_handler(CommandHandler("starttermin", start_termin))
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("starttermin", starttermin))
+    application.add_handler(CallbackQueryHandler(button_handler))
 
-    # Callback-Handler für Admin-Panel und Buchung
-    application.add_handler(CallbackQueryHandler(admin_panel, pattern="^admin_.*"))
-    application.add_handler(CallbackQueryHandler(show_booking_options, pattern="^booking_.*"))
-
-    # Bot starten
-    logger.info("Bot erfolgreich gestartet und läuft jetzt...")
+    logger.info("🤖 Bot gestartet...")
     application.run_polling()
 
 if __name__ == "__main__":
