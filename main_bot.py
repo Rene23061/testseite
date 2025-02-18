@@ -3,7 +3,7 @@ import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from database import add_user, get_menu_text, is_admin
-from config import BOT_TOKEN  # Token wird aus config.py geladen
+from config from config import BOT_TOKEN
 
 # Logging einrichten
 logging.basicConfig(
