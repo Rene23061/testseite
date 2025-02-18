@@ -1,94 +1,69 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from database import add_user, is_admin, get_group_id
 from config import BOT_TOKEN
-from database import add_user, is_admin, get_group_id, add_group
 
 # Logging einrichten
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
+# Start-Funktion
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """ Start-Funktion, erkennt Gruppe und Nutzerrolle """
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
 
-    # Prüfen, ob der Nutzer über den Link gekommen ist (/start?group=123456)
-    args = context.args
-    group_id = None
-    if args:
-        try:
-            group_id = int(args[0].replace("group=", ""))
-        except ValueError:
-            pass
-
-    # Falls keine Gruppe übergeben wurde, die zuletzt bekannte Gruppe aus der Datenbank holen
-    if not group_id:
+    # Prüfen, ob der Start-Befehl eine Gruppen-ID enthält
+    if context.args:
+        group_id = context.args[0].replace("group_", "")
+    else:
         group_id = get_group_id(user_id)
 
     if not group_id:
-        await update.message.reply_text("❌ Fehler: Ich konnte keine Gruppe zuordnen!")
+        await update.message.reply_text("⚠ Du wurdest keiner Gruppe zugeordnet.")
         return
 
-    # Nutzer zur Datenbank hinzufügen (falls noch nicht vorhanden)
+    # Nutzer in der Datenbank speichern, falls nicht vorhanden
     add_user(user_id, group_id)
 
-    # Prüfen, ob der Nutzer Admin ist
+    # Prüfen, ob der Nutzer ein Admin ist
     if is_admin(user_id):
         await show_admin_panel(update, context)
     else:
-        await show_booking_menu(update, context)
+        await show_user_menu(update, context, group_id)
 
-async def starttermin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """ Nur Admins können diesen Befehl ausführen, um eine Gruppe zu registrieren """
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-
-    # Prüfen, ob der Nutzer Admin in dieser Gruppe ist
-    member = await context.bot.get_chat_member(chat_id, user_id)
-    if member.status not in ["administrator", "creator"]:
-        await update.message.reply_text(f"❌ @{update.effective_user.username}, du bist kein Admin!")
-        return
-
-    # Gruppe zur Datenbank hinzufügen
-    group_name = update.effective_chat.title
-    add_group(chat_id, user_id, group_name)
-
-    await update.message.reply_text(f"✅ Die Gruppe '{group_name}' wurde erfolgreich registriert!")
-
+# Admin-Panel anzeigen
 async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """ Admin-Panel anzeigen """
     keyboard = [
         [InlineKeyboardButton("🔧 Einstellungen", callback_data="admin_settings")],
-        [InlineKeyboardButton("📅 Termine verwalten", callback_data="admin_appointments")]
+        [InlineKeyboardButton("📅 Termine verwalten", callback_data="admin_appointments")],
+        [InlineKeyboardButton("❌ Schließen", callback_data="close")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text("👑 Willkommen im Admin-Panel!", reply_markup=reply_markup)
+    await update.message.reply_text("🔹 **Admin-Panel** 🔹\n\nWähle eine Option:", reply_markup=reply_markup)
 
-async def show_booking_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """ Normales Buchungsmenü anzeigen """
+# Nutzer-Menü anzeigen
+async def show_user_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, group_id: str) -> None:
     keyboard = [
-        [InlineKeyboardButton("🔹 Einzel buchen", callback_data="single_booking")],
-        [InlineKeyboardButton("🔸 Event buchen", callback_data="event_booking")]
+        [InlineKeyboardButton("📅 Einzeltermin", callback_data=f"book_single_{group_id}")],
+        [InlineKeyboardButton("👥 Event-Termin", callback_data=f"book_event_{group_id}")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text("🔥 Wähle deine Buchung:", reply_markup=reply_markup)
+    await update.message.reply_text("🔹 **Willkommen!** 🔹\n\nWähle eine Buchungsoption:", reply_markup=reply_markup)
 
+# Hauptfunktion
 def main():
-    """ Startet den Bot """
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("starttermin", starttermin))
-    application.add_handler(CallbackQueryHandler(show_admin_panel, pattern="^admin_"))
-    application.add_handler(CallbackQueryHandler(show_booking_menu, pattern="^single_booking|event_booking"))
+    application.add_handler(CallbackQueryHandler(show_admin_panel, pattern="^admin_.*"))
 
-    logger.info("Bot erfolgreich gestartet!")
+    logger.info("Bot gestartet...")
     application.run_polling()
 
 if __name__ == "__main__":
