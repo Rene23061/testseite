@@ -43,6 +43,18 @@ def add_group(group_id, owner_id, group_name):
     conn.commit()
     conn.close()
 
+from config import DB_PATH
+
+def get_group_owner(group_id):
+    """Holt den Besitzer einer Gruppe aus der Datenbank."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT owner_id FROM groups WHERE group_id = ?", (group_id,))
+    owner = cursor.fetchone()
+    conn.close()
+    
+    return owner[0] if owner else None
+    
 def add_user(user_id, group_id, is_admin=False):
     """ Fügt einen neuen Benutzer hinzu, falls er nicht existiert. """
     conn = sqlite3.connect(DB_PATH)
