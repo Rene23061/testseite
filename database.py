@@ -64,6 +64,26 @@ def get_menu_text(group_id):
     conn.close()
     return result if result else ("Willkommen! Wähle eine Option:", "📅 Einzeltermin buchen", "🎉 Event buchen")
 
+# Begrüßungstext, Bild & Buttons aus der DB abrufen
+def get_menu_data(group_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT menu_text, menu_image, button_single, button_event 
+        FROM groups WHERE group_id = ?""", (group_id,))
+    
+    result = cursor.fetchone()
+    
+    if result:
+        menu_text, menu_image, button_single, button_event = result
+    else:
+        menu_text, menu_image, button_single, button_event = None, None, "Einzeltermin buchen", "Event buchen"
+
+    cursor.close()
+    conn.close()
+    return menu_text, menu_image, button_single, button_event
+    
 def add_user(telegram_id, group_id, is_admin=False):
     """ Fügt einen neuen Benutzer hinzu oder aktualisiert den Admin-Status. """
     conn = connect_db()
