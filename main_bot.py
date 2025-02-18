@@ -16,8 +16,8 @@ async def starttermin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
 
-    # Prüfen, ob der Nutzer ein Admin der Gruppe ist
-    if not await is_admin(user_id, chat_id):
+    # Prüfen, ob der Nutzer ein Admin ist (nur mit user_id)
+    if not is_admin(user_id):
         await update.message.reply_text(f"⚠ {update.effective_user.first_name}, du bist kein Admin dieser Gruppe!")
         return
 
