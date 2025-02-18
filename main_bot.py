@@ -1,7 +1,7 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from database import add_user, is_admin, get_group_id
+from database import add_user, is_admin, get_group_id, add_group
 from config import BOT_TOKEN
 
 # Logging einrichten
@@ -11,7 +11,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Start-Funktion
+# Funktion für /starttermin (nur für Admins)
+async def starttermin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+
+    # Prüfen, ob der Nutzer ein Admin der Gruppe ist
+    if not await is_admin(user_id, chat_id):
+        await update.message.reply_text(f"⚠ {update.effective_user.first_name}, du bist kein Admin dieser Gruppe!")
+        return
+
+    # Gruppe und Admin in der Datenbank speichern
+    add_group(chat_id, user_id)
+    add_user(user_id, chat_id, is_admin=True)
+
+    await update.message.reply_text("✅ Die Gruppe wurde erfolgreich registriert und du wurdest als Admin eingetragen.")
+
+# Start-Funktion für private Chats
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
@@ -60,6 +76,7 @@ async def show_user_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, gro
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
+    application.add_handler(CommandHandler("starttermin", starttermin))
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(show_admin_panel, pattern="^admin_.*"))
 
