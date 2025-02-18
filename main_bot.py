@@ -1,7 +1,7 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from database import add_user, is_admin
+from database import add_user, is_admin, add_group, get_group_owner
 from config import BOT_TOKEN
 
 # Logging einrichten
@@ -10,7 +10,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Funktion zum Starten des Bots und zur Erfassung des Users
+# Prüfen, ob der Nutzer ein Admin in der Gruppe ist
+async def check_admin_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+
+    try:
+        chat_member = await context.bot.get_chat_member(chat_id, user_id)
+        return chat_member.status in ["administrator", "creator"]
+    except Exception as e:
+        logger.error(f"Fehler beim Abrufen des Admin-Status: {e}")
+        return False
+
+# Startbefehl für alle Nutzer
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     chat_id = update.effective_chat.id
@@ -38,18 +50,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ]),
         )
 
-# Funktion für den Befehl /starttermin (nur für Admins)
+# Funktion für den Befehl /starttermin (nur für Admins oder Inhaber)
 async def starttermin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
+    user = update.effective_user
     chat_id = update.effective_chat.id
+    user_id = user.id
 
-    if not is_admin(user_id):
-        await update.message.reply_text("🚫 Du bist kein Admin und kannst diesen Befehl nicht ausführen.")
+    is_admin_in_group = await check_admin_status(update, context)
+
+    if not is_admin_in_group:
+        await update.message.reply_text(f"🚫 @{user.username} du bist kein Admin und darfst diesen Befehl nicht ausführen!")
         return
 
-    await update.message.reply_text(
-        "✅ Gruppe wurde registriert! Der Bot ist jetzt aktiv."
-    )
+    # Gruppe zur Datenbank hinzufügen
+    add_group(chat_id, user_id)
+
+    await update.message.reply_text("✅ Gruppe wurde registriert! Der Bot ist jetzt aktiv.")
 
 # Callback-Funktion für Buttons
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
