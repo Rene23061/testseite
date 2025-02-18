@@ -31,32 +31,7 @@ def create_tables():
             total_bookings INTEGER DEFAULT 0,
             total_cancellations INTEGER DEFAULT 0,
             vip_status BOOLEAN DEFAULT FALSE,
-            FOREIGN KEY (group_id) REFERENCES groups(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS providers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            telegram_id INTEGER NOT NULL,
-            group_id INTEGER,
-            pricing TEXT,
-            availability TEXT,
-            custom_texts TEXT,
-            booking_mode TEXT CHECK (booking_mode IN ('einzeln', 'event', 'beides')),
-            FOREIGN KEY (group_id) REFERENCES groups(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS bookings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            provider_id INTEGER,
-            group_id INTEGER,
-            date_time TEXT NOT NULL,
-            status TEXT CHECK (status IN ('Bestätigt', 'Offen', 'Abgesagt')),
-            payment_status TEXT CHECK (payment_status IN ('Bezahlt', 'Offen')),
-            extras_selected TEXT,
-            FOREIGN KEY (user_id) REFERENCES users(id),
-            FOREIGN KEY (provider_id) REFERENCES providers(id),
+            is_admin BOOLEAN DEFAULT FALSE,
             FOREIGN KEY (group_id) REFERENCES groups(id)
         );
     """)
@@ -78,17 +53,29 @@ def get_menu_text(group_id):
         return result
     return ("Willkommen! Wähle eine Option:", "📅 Einzelbuchung", "🎉 Event buchen")
 
-def add_user(telegram_id, group_id):
+def add_user(telegram_id, group_id, is_admin=False):
     """ Fügt einen neuen Benutzer hinzu, wenn er noch nicht existiert. """
     conn = connect_db()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO users (telegram_id, group_id, total_bookings, total_cancellations, vip_status) 
-        VALUES (?, ?, 0, 0, FALSE)
+        INSERT INTO users (telegram_id, group_id, total_bookings, total_cancellations, vip_status, is_admin) 
+        VALUES (?, ?, 0, 0, FALSE, ?)
         ON CONFLICT(telegram_id) DO NOTHING;
-    """, (telegram_id, group_id))
+    """, (telegram_id, group_id, is_admin))
     conn.commit()
     conn.close()
+
+def is_admin(telegram_id, group_id):
+    """ Prüft, ob der Benutzer Admin ist. """
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT is_admin FROM users WHERE telegram_id = ? AND group_id = ?
+    """, (telegram_id, group_id))
+    result = cursor.fetchone()
+    conn.close()
+
+    return result and result[0] == 1
 
 if __name__ == "__main__":
     create_tables()
