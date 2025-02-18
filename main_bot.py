@@ -42,7 +42,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if is_admin(user_id):
         # Admin-Panel anzeigen
-        tastatur = [[InlineKeyboardButton("📌 Einstellungen", callback_data="admin_settings")]]
+        tastatur = [
+            [InlineKeyboardButton("📌 Einstellungen", callback_data="admin_settings")],
+            [InlineKeyboardButton("📅 Termine verwalten", callback_data="admin_appointments")],
+            [InlineKeyboardButton("🚪 Schließen", callback_data="admin_close")]
+        ]
         reply_markup = InlineKeyboardMarkup(tastatur)
         await update.message.reply_text("🔧 Admin-Panel:", reply_markup=reply_markup)
     else:
@@ -54,12 +58,36 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup = InlineKeyboardMarkup(tastatur)
         await update.message.reply_text("Willkommen! Bitte wähle eine Option:", reply_markup=reply_markup)
 
+async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Verarbeitet Admin-Optionen."""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "admin_settings":
+        await query.edit_message_text("⚙️ Admin-Einstellungen:\n\nHier kannst du Begrüßungstext und Button-Namen ändern.")
+    elif query.data == "admin_appointments":
+        await query.edit_message_text("📅 Terminverwaltung:\n\nHier kannst du bestehende Termine verwalten oder neue erstellen.")
+    elif query.data == "admin_close":
+        await query.edit_message_text("❌ Admin-Panel geschlossen.")
+
+async def booking_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Verarbeitet Nutzer-Buchungen."""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "booking_single":
+        await query.edit_message_text("📅 Einzel-Termin wurde gewählt.\n\nBitte wähle ein Datum aus:")
+    elif query.data == "booking_event":
+        await query.edit_message_text("🎉 Event-Termin wurde gewählt.\n\nBitte wähle ein Datum aus:")
+
 def main():
     """Startet den Bot."""
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("starttermin", starttermin))
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
+    application.add_handler(CallbackQueryHandler(booking_callback, pattern="^booking_"))
 
     logger.info("Bot erfolgreich gestartet.")
     application.run_polling()
