@@ -1,86 +1,81 @@
-import logging
-import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from database import add_user, get_menu_text, is_admin
 from config import BOT_TOKEN
+from database import initialize_database, add_group, add_user, is_admin
+import logging
 
 # Logging einrichten
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Bot-Startbefehl
+# Datenbank initialisieren
+initialize_database()
+
+# Funktion zum Starten der Gruppenregistrierung (nur für Admins)
+async def start_termin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if chat.type != "supergroup" and chat.type != "group":
+        await update.message.reply_text("Dieser Befehl kann nur in Gruppen ausgeführt werden!")
+        return
+
+    add_group(chat.id, user.id, chat.title)
+    await update.message.reply_text(f"✅ Die Gruppe **{chat.title}** wurde erfolgreich registriert!")
+
+# Funktion, die auf den Start-Link reagiert
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
+    user = update.effective_user
     chat_id = update.effective_chat.id
+    user_id = user.id
 
-    # Prüfen, ob der Nutzer über einen Gruppenlink kommt
-    if update.message and update.message.text.startswith("/start"):
-        args = context.args
-        group_id = None
-        if args:
-            group_id = args[0]  # Gruppen-ID aus der URL übernehmen
+    # Überprüfen, ob der Nutzer Admin ist
+    admin_status = is_admin(user_id)
 
-        # Nutzer zur Datenbank hinzufügen
-        add_user(user_id, group_id)
+    # Nutzer registrieren
+    add_user(user_id, chat_id, is_admin=admin_status)
 
-        # Prüfen, ob der Nutzer Admin ist
-        admin_status = is_admin(user_id)
+    if admin_status:
+        await admin_panel(update, context)
+    else:
+        await show_booking_options(update, context)
 
-        if admin_status:
-            await show_admin_menu(update, context)
-            return
-
-        # Menü-Text, Button-Namen und Bild abrufen
-        menu_text, button_single, button_event, image_url = get_menu_text(group_id)
-
-        keyboard = [
-            [InlineKeyboardButton(button_single, callback_data="single_booking")],
-            [InlineKeyboardButton(button_event, callback_data="event_booking")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        # Bild senden, falls vorhanden
-        if image_url and image_url != "none":
-            try:
-                await context.bot.send_photo(chat_id=user_id, photo=image_url, caption=menu_text, reply_markup=reply_markup)
-            except Exception as e:
-                logger.error(f"Fehler beim Senden des Bildes: {e}")
-                await context.bot.send_message(chat_id=user_id, text=menu_text, reply_markup=reply_markup)
-        else:
-            await context.bot.send_message(chat_id=user_id, text=menu_text, reply_markup=reply_markup)
-
-# Callback für Admin-Panel
-async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+# Funktion zum Anzeigen des Admin-Panels
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [
-        [InlineKeyboardButton("Texte & Bilder bearbeiten", callback_data="edit_content")],
-        [InlineKeyboardButton("Termine verwalten", callback_data="manage_bookings")],
-        [InlineKeyboardButton("Schließen", callback_data="close_admin")],
+        [InlineKeyboardButton("📄 Begrüßungstext ändern", callback_data="admin_edit_text")],
+        [InlineKeyboardButton("🔘 Button-Namen ändern", callback_data="admin_edit_buttons")],
+        [InlineKeyboardButton("❌ Admin-Panel schließen", callback_data="admin_close")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("🔧 **Admin-Panel**\nWähle eine Option:", reply_markup=reply_markup)
 
-    await update.message.reply_text("📌 **Admin-Panel**", reply_markup=reply_markup)
-
-# Callback für Auswahl Einzel- oder Eventbuchung
-async def booking_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "single_booking":
-        await query.edit_message_text("🔹 Einzelbuchung wurde gewählt. Weitere Details folgen...")
-    elif query.data == "event_booking":
-        await query.edit_message_text("🎉 Eventbuchung wurde gewählt. Weitere Details folgen...")
+# Funktion zum Anzeigen der Buchungsoptionen für Nutzer
+async def show_booking_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    keyboard = [
+        [InlineKeyboardButton("👤 Einzel-Termin", callback_data="booking_single")],
+        [InlineKeyboardButton("👥 Event-Termin", callback_data="booking_event")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Willkommen! Wähle eine Option:", reply_markup=reply_markup)
 
 # Hauptfunktion zum Starten des Bots
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
+    # Handler für Befehle
+    application.add_handler(CommandHandler("starttermin", start_termin))
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(booking_selection, pattern="^(single_booking|event_booking)$"))
 
-    logger.info("🤖 Bot gestartet...")
+    # Callback-Handler für Admin-Panel und Buchung
+    application.add_handler(CallbackQueryHandler(admin_panel, pattern="^admin_.*"))
+    application.add_handler(CallbackQueryHandler(show_booking_options, pattern="^booking_.*"))
+
+    # Bot starten
+    logger.info("Bot erfolgreich gestartet und läuft jetzt...")
     application.run_polling()
 
 if __name__ == "__main__":
