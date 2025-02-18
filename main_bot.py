@@ -8,23 +8,23 @@ import logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Start-Funktion mit Gruppen-Check
+# Start-Funktion für Nutzer und Admins
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
+    args = context.args
 
     # Gruppen-ID aus dem Start-Link holen
-    args = context.args
-    if args:
-        group_id = args[0]  # Gruppen-ID aus dem Link
-        add_user(user_id, group_id, is_admin=is_admin(user_id))  # Nutzer speichern
-    else:
-        group_id = get_group_id(user_id)  # Falls keine Gruppen-ID mitgegeben wurde
+    group_id = args[0] if args else get_group_id(user_id)
 
     if not group_id:
         await update.message.reply_text("⚠️ Du bist nicht mit einer registrierten Gruppe verknüpft. Bitte nutze den Bot über eine Gruppe!")
         return
 
-    if is_admin(user_id):
+    # Nutzer zur Datenbank hinzufügen (falls nicht vorhanden)
+    add_user(user_id, group_id, is_admin=is_admin(user_id, group_id))
+
+    # Prüfen, ob Nutzer Admin ist
+    if is_admin(user_id, group_id):
         # Admin-Panel anzeigen
         tastatur = [
             [InlineKeyboardButton("📌 Einstellungen", callback_data="admin_settings")],
@@ -50,12 +50,13 @@ async def starttermin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # Prüfen, ob der Nutzer Admin der Gruppe ist
     member = await context.bot.get_chat_member(chat.id, user_id)
     if member.status not in ["administrator", "creator"]:
-        await update.message.reply_text(f"⚠️ @${update.effective_user.username}, du bist kein Admin und darfst diesen Befehl nicht nutzen!")
+        await update.message.reply_text(f"⚠️ @{update.effective_user.username}, du bist kein Admin und darfst diesen Befehl nicht nutzen!")
         return
 
-    # Gruppe und Admin eintragen
-    add_group(chat.id, user_id, chat.title)
-    await update.message.reply_text("✅ Diese Gruppe wurde erfolgreich registriert!")
+    # Gruppe und Admin in die Datenbank eintragen
+    add_group(chat.id, user_id, chat.title)  # Gruppe registrieren
+    add_user(user_id, chat.id, True)  # Admin hinzufügen
+    await update.message.reply_text("✅ Diese Gruppe wurde erfolgreich registriert und du bist als Admin gespeichert!")
 
 # Handler-Funktion für Callback-Buttons
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
