@@ -9,14 +9,20 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def termin(update: Update, context: CallbackContext):
-    """ Befehl /termin verarbeitet: Wechselt in den Privatchat und zeigt das Menü an. """
+    """ Befehl /termin verarbeitet: Schickt einen Button für den Privatchat. """
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    group_id = chat_id  # Falls in einer Gruppe ausgeführt
 
-    # Falls der Befehl in einer Gruppe kommt, Nutzer in Privatchat schicken
+    # Falls der Befehl in einer Gruppe kommt, sende den Button zum Privatchat
     if chat_id < 0:  
-        await update.message.reply_text("📩 Bitte schreibe mir privat, um einen Termin zu buchen!")
+        private_link = f"https://t.me/{context.bot.username}?start=privat"
+        keyboard = [[InlineKeyboardButton("🔗 Zum Privatchat", url=private_link)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            "📩 Bitte schreibe mir privat, um einen Termin zu buchen!",
+            reply_markup=reply_markup
+        )
         return
     
     # Nutzer zur Datenbank hinzufügen
