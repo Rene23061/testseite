@@ -1,5 +1,6 @@
 import logging
 import requests
+import BOT_TOKEN
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from database import add_user, get_menu_text, is_admin
