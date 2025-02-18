@@ -1,96 +1,66 @@
 import sqlite3
 
-# Datenbankverbindung herstellen
-def connect_db():
-    return sqlite3.connect("eventbot.db")
+DB_PATH = "/root/eventbot/eventbot.db"
 
-# Tabelle für Gruppen erstellen
-def create_tables():
-    conn = connect_db()
+def initialize_database():
+    """ Erstellt die notwendigen Tabellen in der Datenbank, falls sie nicht existieren. """
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
+    # Tabelle für Gruppen
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS groups (
-        group_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        telegram_group_id INTEGER UNIQUE NOT NULL,
-        group_name TEXT NOT NULL,
-        owner_id INTEGER NOT NULL,
-        menu_text TEXT DEFAULT 'Willkommen! Was möchtest du buchen?',
-        button_single TEXT DEFAULT 'Einzeltermin',
-        button_event TEXT DEFAULT 'Event buchen',
-        image_url TEXT DEFAULT 'none'
-    );
+        CREATE TABLE IF NOT EXISTS groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER UNIQUE NOT NULL,
+            owner_id INTEGER NOT NULL,
+            group_name TEXT NOT NULL,
+            auto_booking BOOLEAN DEFAULT 0
+        )
     """)
 
+    # Tabelle für Nutzer
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        telegram_id INTEGER NOT NULL,
-        group_id INTEGER,
-        is_admin BOOLEAN DEFAULT FALSE,
-        FOREIGN KEY (group_id) REFERENCES groups(group_id)
-    );
-    """)
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS bookings (
-        booking_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        group_id INTEGER NOT NULL,
-        booking_type TEXT CHECK(booking_type IN ('single', 'event')),
-        status TEXT CHECK(status IN ('pending', 'confirmed', 'canceled')),
-        FOREIGN KEY (user_id) REFERENCES users(user_id),
-        FOREIGN KEY (group_id) REFERENCES groups(group_id)
-    );
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER UNIQUE NOT NULL,
+            group_id INTEGER NOT NULL,
+            is_admin BOOLEAN DEFAULT 0,
+            FOREIGN KEY (group_id) REFERENCES groups(group_id)
+        )
     """)
 
     conn.commit()
     conn.close()
 
-# Neuen Benutzer hinzufügen
-def add_user(telegram_id, group_id):
-    conn = connect_db()
+def add_group(group_id, owner_id, group_name):
+    """ Fügt eine neue Gruppe hinzu, falls sie nicht bereits existiert. """
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
-    cursor.execute("""
-    INSERT INTO users (telegram_id, group_id)
-    VALUES (?, ?)
-    ON CONFLICT (telegram_id) DO NOTHING;
-    """, (telegram_id, group_id))
+
+    cursor.execute("INSERT OR IGNORE INTO groups (group_id, owner_id, group_name) VALUES (?, ?, ?)",
+                   (group_id, owner_id, group_name))
 
     conn.commit()
     conn.close()
 
-# Prüfen, ob ein Benutzer Admin ist
-def is_admin(telegram_id):
-    conn = connect_db()
+def add_user(user_id, group_id, is_admin=False):
+    """ Fügt einen neuen Benutzer hinzu, falls er nicht existiert. """
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("SELECT is_admin FROM users WHERE telegram_id = ?", (telegram_id,))
+    cursor.execute("INSERT OR IGNORE INTO users (user_id, group_id, is_admin) VALUES (?, ?, ?)",
+                   (user_id, group_id, int(is_admin)))
+
+    conn.commit()
+    conn.close()
+
+def is_admin(user_id):
+    """ Prüft, ob der Nutzer Admin ist. """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT is_admin FROM users WHERE user_id = ?", (user_id,))
     result = cursor.fetchone()
-    
+
     conn.close()
     return result[0] if result else False
-
-# Menü-Text und Button-Namen abrufen
-def get_menu_text(group_id):
-    conn = connect_db()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT menu_text, button_single, button_event, image_url FROM groups WHERE group_id = ?", (group_id,))
-    result = cursor.fetchone()
-    
-    conn.close()
-    return result if result else ("Willkommen! Was möchtest du buchen?", "Einzeltermin", "Event buchen", "none")
-
-# Adminstatus setzen
-def set_admin(telegram_id, status=True):
-    conn = connect_db()
-    cursor = conn.cursor()
-
-    cursor.execute("UPDATE users SET is_admin = ? WHERE telegram_id = ?", (status, telegram_id))
-    conn.commit()
-    conn.close()
-
-# Initiale Tabellen erstellen
-create_tables()
