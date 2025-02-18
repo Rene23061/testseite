@@ -1,61 +1,67 @@
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
-from database import is_admin  # Funktion zur Überprüfung, ob der Benutzer Admin ist
+from database import update_group_settings, get_group_settings
 
-# Funktion zum Anzeigen des Admin-Startmenüs
-async def show_admin_panel(update: Update, context: CallbackContext) -> None:
-    user_id = update.effective_user.id
+# Logging einrichten
+logger = logging.getLogger(__name__)
 
-    # Überprüfen, ob der Benutzer Admin ist
-    if not is_admin(user_id):
-        await update.message.reply_text("🚫 Zugriff verweigert: Du bist kein Admin!")
-        return
-
+async def admin_panel(update: Update, context: CallbackContext) -> None:
+    """ Zeigt das Admin-Panel mit den Optionen an. """
     keyboard = [
-        [InlineKeyboardButton("🖊 Begrüßungstext & Bild ändern", callback_data="edit_text_image")],
-        [InlineKeyboardButton("📅 Buchungen verwalten", callback_data="manage_bookings")],
-        [InlineKeyboardButton("❌ Admin-Panel schließen", callback_data="close_admin")]
+        [InlineKeyboardButton("✏️ Begrüßungstext ändern", callback_data="edit_welcome_text")],
+        [InlineKeyboardButton("🖋 Button-Namen ändern", callback_data="edit_button_names")],
+        [InlineKeyboardButton("📅 Termine verwalten", callback_data="manage_appointments")],
+        [InlineKeyboardButton("❌ Schließen", callback_data="close_admin_panel")]
     ]
-
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        "🔧 **Admin-Panel**\n\nWillkommen im Admin-Bereich. Wähle eine Option:",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
+    await update.callback_query.message.edit_text("⚙️ Admin-Panel:\n\nWähle eine Option:", reply_markup=reply_markup)
 
-# Funktion zur Bearbeitung von Texten & Bildern
-async def edit_text_image(update: Update, context: CallbackContext) -> None:
-    query = update.callback_query
-    await query.answer()
+async def edit_welcome_text(update: Update, context: CallbackContext) -> None:
+    """ Admin kann den Begrüßungstext für die Gruppe ändern. """
+    await update.callback_query.message.reply_text("✏️ Sende mir den neuen Begrüßungstext.")
+    context.user_data['awaiting_text'] = True
 
-    await query.edit_message_text(
-        "🖊 **Texte & Bilder bearbeiten**\n\n"
-        "Sende mir den neuen Begrüßungstext oder ein Bild, das im Startmenü angezeigt werden soll.",
-        parse_mode="Markdown"
-    )
+async def edit_button_names(update: Update, context: CallbackContext) -> None:
+    """ Admin kann die Namen der Buttons ändern. """
+    await update.callback_query.message.reply_text("✏️ Sende mir die neuen Button-Namen im Format:\n\n`Einzel | Event`")
+    context.user_data['awaiting_buttons'] = True
 
-# Funktion zur Verwaltung von Buchungen (Platzhalter für spätere Features)
-async def manage_bookings(update: Update, context: CallbackContext) -> None:
-    query = update.callback_query
-    await query.answer()
+async def manage_appointments(update: Update, context: CallbackContext) -> None:
+    """ Öffnet das Terminverwaltungsmenü. """
+    await update.callback_query.message.reply_text("📅 Terminverwaltung folgt noch...")
 
-    await query.edit_message_text(
-        "📅 **Buchungen verwalten**\n\n"
-        "Hier kannst du alle Buchungen sehen & bearbeiten. Diese Funktion wird bald hinzugefügt.",
-        parse_mode="Markdown"
-    )
+async def close_admin_panel(update: Update, context: CallbackContext) -> None:
+    """ Schließt das Admin-Panel. """
+    await update.callback_query.message.edit_text("Admin-Panel geschlossen.")
 
-# Funktion zum Schließen des Admin-Panels
-async def close_admin(update: Update, context: CallbackContext) -> None:
-    query = update.callback_query
-    await query.answer()
+async def handle_text(update: Update, context: CallbackContext) -> None:
+    """ Verarbeitet eingegebenen Begrüßungstext oder Button-Namen. """
+    user_id = update.effective_user.id
+    group_id = get_group_settings(user_id)
 
-    await query.edit_message_text("✅ Admin-Panel geschlossen.")
+    if 'awaiting_text' in context.user_data and context.user_data['awaiting_text']:
+        new_text = update.message.text
+        update_group_settings(group_id, "menu_text", new_text)
+        await update.message.reply_text("✅ Begrüßungstext wurde aktualisiert.")
+        context.user_data['awaiting_text'] = False
 
-# Callback-Handler für das Admin-Menü registrieren
+    elif 'awaiting_buttons' in context.user_data and context.user_data['awaiting_buttons']:
+        button_names = update.message.text.split(" | ")
+        if len(button_names) == 2:
+            update_group_settings(group_id, "button_single", button_names[0])
+            update_group_settings(group_id, "button_event", button_names[1])
+            await update.message.reply_text("✅ Button-Namen wurden aktualisiert.")
+        else:
+            await update.message.reply_text("⚠️ Bitte sende die Namen im korrekten Format: `Einzel | Event`")
+        context.user_data['awaiting_buttons'] = False
+
 def register_admin_handlers(application):
-    application.add_handler(CallbackQueryHandler(edit_text_image, pattern="edit_text_image"))
-    application.add_handler(CallbackQueryHandler(manage_bookings, pattern="manage_bookings"))
-    application.add_handler(CallbackQueryHandler(close_admin, pattern="close_admin"))
+    """ Registriert alle Admin-bezogenen Callback-Handler. """
+    application.add_handler(CallbackQueryHandler(admin_panel, pattern="^admin_panel$"))
+    application.add_handler(CallbackQueryHandler(edit_welcome_text, pattern="^edit_welcome_text$"))
+    application.add_handler(CallbackQueryHandler(edit_button_names, pattern="^edit_button_names$"))
+    application.add_handler(CallbackQueryHandler(manage_appointments, pattern="^manage_appointments$"))
+    application.add_handler(CallbackQueryHandler(close_admin_panel, pattern="^close_admin_panel$"))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
