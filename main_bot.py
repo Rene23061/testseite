@@ -22,8 +22,8 @@ async def termin(update: Update, context: CallbackContext):
     # Nutzer zur Datenbank hinzufügen
     add_user(user_id, chat_id)
 
-    # Begrüßungstext und Buttons abrufen
-    menu_text, button_single, button_event = get_menu_text(chat_id)
+    # Begrüßungstext, Bild & Buttons aus DB holen
+    menu_text, menu_image, button_single, button_event = get_menu_text(chat_id)
 
     # Inline-Buttons erstellen
     keyboard = [
@@ -32,18 +32,25 @@ async def termin(update: Update, context: CallbackContext):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Nachricht senden
-    await update.message.reply_text(menu_text, reply_markup=reply_markup)
+    # Menü anzeigen (mit Bild falls vorhanden)
+    if menu_image:
+        await context.bot.send_photo(chat_id=user_id, photo=menu_image, caption=menu_text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(menu_text, reply_markup=reply_markup)
 
 async def button_click(update: Update, context: CallbackContext):
     """ Verarbeitet Klicks auf die Inline-Buttons. """
     query = update.callback_query
+    user_id = query.from_user.id
     await query.answer()
 
     if query.data == "single":
-        await query.message.reply_text("📅 Einzelbuchung gewählt. Weiterleitung folgt...")
+        await query.message.edit_text("📅 Einzelbuchung gewählt. Weiterleitung folgt...")
     elif query.data == "event":
-        await query.message.reply_text("🎉 Event-Buchung gewählt. Weiterleitung folgt...")
+        await query.message.edit_text("🎉 Event-Buchung gewählt. Weiterleitung folgt...")
+
+    # Nachricht nach der Auswahl löschen
+    await context.bot.delete_message(chat_id=user_id, message_id=query.message.message_id)
 
 def main():
     """ Startet den Bot mit allen Befehlen. """
