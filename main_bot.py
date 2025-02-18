@@ -63,7 +63,7 @@ async def starttermin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     # Gruppe zur Datenbank hinzufügen
-    add_group(chat_id, user_id)
+    add_group(chat_id, user_id, "Gruppenname")
 
     await update.message.reply_text("✅ Gruppe wurde registriert! Der Bot ist jetzt aktiv.")
 
