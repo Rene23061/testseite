@@ -1,81 +1,48 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from database import add_user, is_admin, get_menu_text
-import logging
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Application, CommandHandler, CallbackContext
 
-# Logging einrichten
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+BOT_USERNAME = "GbEvent_bot"  # Dein Bot-Username
 
-# Bot-Token aus der config-Datei
-from config import BOT_TOKEN
-
-# Funktion für den Startbefehl /termin in der Gruppe
-async def termin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
-    first_name = update.effective_user.first_name
-
-    # Prüfen, ob der Nutzer bereits in der Datenbank ist, sonst hinzufügen
-    add_user(user_id, chat_id)
-
-    # Begrüßungstext & Button-Namen aus der Datenbank abrufen
-    menu_text, button_single, button_event = get_menu_text(chat_id)
-
-    # Inline-Buttons erstellen
+async def termin(update: Update, context: CallbackContext) -> None:
+    """Sendet das Buchungsmenü in die Gruppe."""
+    
     keyboard = [
-        [InlineKeyboardButton(button_single, callback_data="single_booking")],
-        [InlineKeyboardButton(button_event, callback_data="event_booking")]
+        [InlineKeyboardButton("📅 Einzelbuchung", url=f"https://t.me/{BOT_USERNAME}?start=single")],
+        [InlineKeyboardButton("🎉 Event buchen", url=f"https://t.me/{BOT_USERNAME}?start=event")]
     ]
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Nachricht mit Buttons senden
-    message = await update.message.reply_text(
-        f"{menu_text}\n\n🔽 Wähle eine Option: 🔽",
+    await update.message.reply_text(
+        "📩 Wähle deine gewünschte Buchungsart aus:\n"
+        "➡ Klicke auf einen Button, um deine Buchung zu starten.",
         reply_markup=reply_markup
     )
 
-    # Nachricht nach Auswahl automatisch löschen
-    context.user_data['last_message_id'] = message.message_id
-
-# Funktion zum Verarbeiten der Auswahl (Einzelbuchung/Event)
-async def handle_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    user_id = query.from_user.id
-    chat_id = query.message.chat.id
-
-    # Lösche die Nachricht in der Gruppe
-    try:
-        await context.bot.delete_message(chat_id, query.message.message_id)
-    except Exception as e:
-        logger.warning(f"Fehler beim Löschen der Nachricht: {e}")
-
-    # Weiterleitung in den privaten Chat
-    if query.data == "single_booking":
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="📅 Einzelbuchung gestartet! Wähle dein Datum und deine Uhrzeit."
-        )
-    elif query.data == "event_booking":
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="🎉 Eventbuchung gestartet! Wähle dein Event und sichere deinen Platz."
-        )
-
-# Hauptfunktion zum Starten des Bots
-def main():
-    application = Application.builder().token(BOT_TOKEN).build()
-
-    # Befehl-Handler
-    application.add_handler(CommandHandler("termin", termin))
+async def start(update: Update, context: CallbackContext) -> None:
+    """Reagiert auf den Start-Befehl im privaten Chat."""
     
-    # Auswahl-Handler (Einzelbuchung/Event)
-    application.add_handler(CallbackQueryHandler(handle_selection, pattern="^(single_booking|event_booking)$"))
+    query = context.args[0] if context.args else None
+    
+    if query == "single":
+        text = "📅 Du hast die Einzelbuchung gewählt! Wähle nun Datum & Uhrzeit."
+    elif query == "event":
+        text = "🎉 Du hast die Event-Buchung gewählt! Wähle dein Event."
+    else:
+        text = "👋 Willkommen! Bitte kehre zur Gruppe zurück und starte eine Buchung."
 
-    logger.info("Bot gestartet... 🚀")
+    keyboard = [[InlineKeyboardButton("🔙 Zurück zur Gruppe", url="https://t.me/YOUR_GROUP_LINK")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(text, reply_markup=reply_markup)
+
+def main():
+    """Startet den Bot."""
+    application = Application.builder().token("DEIN_BOT_TOKEN").build()
+
+    application.add_handler(CommandHandler("termin", termin))
+    application.add_handler(CommandHandler("start", start))
+
     application.run_polling()
 
 if __name__ == "__main__":
