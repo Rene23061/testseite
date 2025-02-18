@@ -1,61 +1,103 @@
+import logging
+import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackContext
-from database import is_admin  # Funktion zur Überprüfung, ob der Benutzer Admin ist
+from telegram.ext import Application, CommandHandler, CallbackContext
 
-# Funktion zum Anzeigen des Admin-Startmenüs
-async def show_admin_panel(update: Update, context: CallbackContext) -> None:
+# Logging aktivieren
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Verbindung zur SQLite-Datenbank herstellen
+DB_PATH = "eventbot.db"  # Pfad zur SQLite-Datenbank
+
+def connect_db():
+    """Verbindet sich mit der SQLite-Datenbank."""
+    return sqlite3.connect(DB_PATH)
+
+# Admin-Check Funktion
+async def is_admin(update: Update, context: CallbackContext) -> bool:
+    """Prüft, ob der Benutzer ein Admin in der Gruppe ist."""
     user_id = update.effective_user.id
+    chat_id = update.message.chat.id
 
-    # Überprüfen, ob der Benutzer Admin ist
-    if not is_admin(user_id):
-        await update.message.reply_text("🚫 Zugriff verweigert: Du bist kein Admin!")
-        return
+    try:
+        chat_admins = await context.bot.get_chat_administrators(chat_id)
+        return any(admin.user.id == user_id for admin in chat_admins)
+    except Exception as e:
+        logger.error(f"Fehler beim Abrufen der Admins: {e}")
+        return False
 
+# Begrüßungsnachricht mit Inline-Buttons
+async def start(update: Update, context: CallbackContext) -> None:
+    """Reagiert auf /start und leitet Nutzer ins Menü."""
+    user_id = update.effective_user.id
+    chat_id = update.message.chat.id
+
+    if await is_admin(update, context):  # Prüft, ob der User ein Admin ist
+        await update.message.reply_text("👑 Willkommen im Admin-Panel!\nWähle eine Option:", reply_markup=admin_menu())
+    else:
+        await update.message.reply_text("📩 Bitte schreibe mir privat, um einen Termin zu buchen.", reply_markup=user_menu())
+
+# Admin-Panel Buttons
+def admin_menu():
+    """Erstellt die Inline-Tastatur für das Admin-Panel."""
     keyboard = [
-        [InlineKeyboardButton("🖊 Begrüßungstext & Bild ändern", callback_data="edit_text_image")],
-        [InlineKeyboardButton("📅 Buchungen verwalten", callback_data="manage_bookings")],
-        [InlineKeyboardButton("❌ Admin-Panel schließen", callback_data="close_admin")]
+        [InlineKeyboardButton("📜 Texte & Bilder", callback_data="admin_texts")],
+        [InlineKeyboardButton("📅 Termine verwalten", callback_data="admin_appointments")],
+        [InlineKeyboardButton("🔄 Schließen", callback_data="admin_close")]
     ]
+    return InlineKeyboardMarkup(keyboard)
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
+# User-Menü Buttons
+def user_menu():
+    """Erstellt die Inline-Tastatur für normale Benutzer."""
+    keyboard = [
+        [InlineKeyboardButton("📆 Einzeltermin buchen", callback_data="book_single")],
+        [InlineKeyboardButton("🎉 Event buchen", callback_data="book_event")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        "🔧 **Admin-Panel**\n\nWillkommen im Admin-Bereich. Wähle eine Option:",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-
-# Funktion zur Bearbeitung von Texten & Bildern
-async def edit_text_image(update: Update, context: CallbackContext) -> None:
+# Callback-Handler für Admin-Buttons
+async def admin_callback(update: Update, context: CallbackContext) -> None:
+    """Verarbeitet die Auswahl im Admin-Panel."""
     query = update.callback_query
     await query.answer()
 
-    await query.edit_message_text(
-        "🖊 **Texte & Bilder bearbeiten**\n\n"
-        "Sende mir den neuen Begrüßungstext oder ein Bild, das im Startmenü angezeigt werden soll.",
-        parse_mode="Markdown"
-    )
+    if query.data == "admin_texts":
+        await query.edit_message_text("📜 Hier kannst du Begrüßungstext & Bild ändern.")
+    elif query.data == "admin_appointments":
+        await query.edit_message_text("📅 Hier kannst du Termine verwalten.")
+    elif query.data == "admin_close":
+        await query.edit_message_text("🔄 Admin-Panel geschlossen.")
 
-# Funktion zur Verwaltung von Buchungen (Platzhalter für spätere Features)
-async def manage_bookings(update: Update, context: CallbackContext) -> None:
+# Callback-Handler für User-Buttons
+async def user_callback(update: Update, context: CallbackContext) -> None:
+    """Verarbeitet die Auswahl im Benutzer-Menü."""
     query = update.callback_query
     await query.answer()
 
-    await query.edit_message_text(
-        "📅 **Buchungen verwalten**\n\n"
-        "Hier kannst du alle Buchungen sehen & bearbeiten. Diese Funktion wird bald hinzugefügt.",
-        parse_mode="Markdown"
-    )
+    if query.data == "book_single":
+        await query.edit_message_text("📆 Einzeltermin gebucht! 🎉")
+    elif query.data == "book_event":
+        await query.edit_message_text("🎉 Eventbuchung bestätigt! 🎟")
 
-# Funktion zum Schließen des Admin-Panels
-async def close_admin(update: Update, context: CallbackContext) -> None:
-    query = update.callback_query
-    await query.answer()
+# Hauptfunktion zum Starten des Bots
+def main():
+    """Startet den Bot."""
+    application = Application.builder().token("DEIN_BOT_TOKEN").build()
 
-    await query.edit_message_text("✅ Admin-Panel geschlossen.")
+    # Befehle hinzufügen
+    application.add_handler(CommandHandler("start", start))
 
-# Callback-Handler für das Admin-Menü registrieren
-def register_admin_handlers(application):
-    application.add_handler(CallbackQueryHandler(edit_text_image, pattern="edit_text_image"))
-    application.add_handler(CallbackQueryHandler(manage_bookings, pattern="manage_bookings"))
-    application.add_handler(CallbackQueryHandler(close_admin, pattern="close_admin"))
+    # Callback-Handler für Inline-Buttons
+    application.add_handler(CallbackQueryHandler(admin_callback, pattern="admin_.*"))
+    application.add_handler(CallbackQueryHandler(user_callback, pattern="book_.*"))
+
+    logger.info("🤖 Bot läuft...")
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
