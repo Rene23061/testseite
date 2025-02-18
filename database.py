@@ -1,83 +1,91 @@
 import sqlite3
 
-DB_PATH = "/root/eventbot/eventbot.db"
+DB_PATH = "/root/eventbot/database.sqlite3"
 
 def connect_db():
-    """Stellt eine Verbindung zur SQLite-Datenbank her."""
+    """ Erstellt eine Verbindung zur SQLite-Datenbank. """
     return sqlite3.connect(DB_PATH)
 
 def create_tables():
-    """Erstellt die notwendigen Tabellen, falls sie nicht existieren."""
+    """ Erstellt die benötigten Tabellen, falls sie nicht existieren. """
     conn = connect_db()
     cursor = conn.cursor()
 
-    cursor.executescript("""
-    CREATE TABLE IF NOT EXISTS groups (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        group_id INTEGER UNIQUE NOT NULL,
-        owner_id INTEGER NOT NULL,
-        group_name TEXT NOT NULL,
-        auto_booking BOOLEAN DEFAULT FALSE
-    );
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER UNIQUE NOT NULL,
+            group_id INTEGER NOT NULL
+        )
+    """)
 
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        telegram_id INTEGER NOT NULL,
-        group_id INTEGER REFERENCES groups(id),
-        phone_number TEXT,
-        total_bookings INTEGER DEFAULT 0,
-        total_cancellations INTEGER DEFAULT 0,
-        vip_status BOOLEAN DEFAULT FALSE,
-        UNIQUE (telegram_id, group_id)
-    );
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS groups (
+            group_id INTEGER PRIMARY KEY,
+            group_name TEXT NOT NULL,
+            menu_text TEXT DEFAULT 'Willkommen!',
+            button_single TEXT DEFAULT 'Einzelbuchung',
+            button_event TEXT DEFAULT 'Event buchen',
+            image_path TEXT DEFAULT NULL
+        )
+    """)
 
-    CREATE TABLE IF NOT EXISTS providers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        telegram_id INTEGER NOT NULL,
-        group_id INTEGER REFERENCES groups(id),
-        pricing TEXT,
-        availability TEXT,
-        custom_texts TEXT,
-        booking_mode TEXT CHECK (booking_mode IN ('einzeln', 'event', 'beides'))
-    );
-
-    CREATE TABLE IF NOT EXISTS bookings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER REFERENCES users(id),
-        provider_id INTEGER REFERENCES providers(id),
-        group_id INTEGER REFERENCES groups(id),
-        date_time TEXT NOT NULL,
-        status TEXT CHECK (status IN ('Bestätigt', 'Offen', 'Abgesagt')),
-        payment_status TEXT CHECK (payment_status IN ('Bezahlt', 'Offen')),
-        extras_selected TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS blacklist (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER REFERENCES users(id),
-        date_added TEXT DEFAULT CURRENT_TIMESTAMP,
-        reason TEXT,
-        total_strikes INTEGER DEFAULT 1
-    );
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS admins (
+            admin_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER UNIQUE NOT NULL,
+            group_id INTEGER NOT NULL
+        )
     """)
 
     conn.commit()
     cursor.close()
     conn.close()
-    print("✅ SQLite-Datenbank ist bereit!")
 
 def get_menu_text(group_id):
-    """Holt das Menü für eine bestimmte Telegram-Gruppe."""
+    """ Holt den Begrüßungstext, Buttons & Bild für eine Gruppe. """
     conn = connect_db()
     cursor = conn.cursor()
 
     cursor.execute("""
-    SELECT group_name FROM groups WHERE group_id = ?;
+        SELECT menu_text, button_single, button_event, image_path FROM groups WHERE group_id = ?
     """, (group_id,))
+    
     result = cursor.fetchone()
+    
+    if result:
+        return result
+    else:
+        return "Willkommen!", "Einzelbuchung", "Event buchen", None
 
+def add_user(telegram_id, group_id):
+    """ Fügt einen neuen Nutzer zur Datenbank hinzu, falls nicht vorhanden. """
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT OR IGNORE INTO users (telegram_id, group_id) VALUES (?, ?)
+    """, (telegram_id, group_id))
+
+    conn.commit()
+    cursor.close()
     conn.close()
-    return result[0] if result else ("Willkommen!", "Einzelbuchung", "Party/Event")
 
+def is_admin(telegram_id, group_id):
+    """ Prüft, ob der Nutzer Admin ist. """
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT 1 FROM admins WHERE telegram_id = ? AND group_id = ?
+    """, (telegram_id, group_id))
+
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    return result is not None
+
+# Tabellen erstellen beim Start
 create_tables()
+print("✅ SQLite-Datenbank ist bereit!")
