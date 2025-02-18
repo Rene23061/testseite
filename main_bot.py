@@ -1,63 +1,82 @@
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from database import add_user, is_admin, get_menu_text
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, CallbackContext
-from database import get_menu_text, add_user
-from config import BOT_TOKEN
 
-# Logging aktivieren
-logging.basicConfig(level=logging.INFO)
+# Logging einrichten
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-async def start(update: Update, context: CallbackContext):
-    """ Wird ausgelöst, wenn jemand den Bot privat startet. Zeigt direkt das Buchungsmenü. """
+# Bot-Token aus der config-Datei
+from config import BOT_TOKEN
+
+# Funktion für den Startbefehl /termin in der Gruppe
+async def termin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
     user_id = update.effective_user.id
+    first_name = update.effective_user.first_name
 
-    # Nutzer zur Datenbank hinzufügen
-    add_user(user_id)
+    # Prüfen, ob der Nutzer bereits in der Datenbank ist, sonst hinzufügen
+    add_user(user_id, chat_id)
 
-    # Begrüßungstext, Bild & Buttons aus der Datenbank abrufen
-    menu_text, menu_image, button_single, button_event = get_menu_text(user_id)
+    # Begrüßungstext & Button-Namen aus der Datenbank abrufen
+    menu_text, button_single, button_event = get_menu_text(chat_id)
 
-    # Inline-Buttons für Einzel- & Event-Buchung erstellen
+    # Inline-Buttons erstellen
     keyboard = [
-        [InlineKeyboardButton(button_single, callback_data="single")],
-        [InlineKeyboardButton(button_event, callback_data="event")]
+        [InlineKeyboardButton(button_single, callback_data="single_booking")],
+        [InlineKeyboardButton(button_event, callback_data="event_booking")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Begrüßungsnachricht mit Bild (falls vorhanden)
-    if menu_image:
-        await context.bot.send_photo(chat_id=user_id, photo=menu_image, caption=menu_text, reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(menu_text, reply_markup=reply_markup)
+    # Nachricht mit Buttons senden
+    message = await update.message.reply_text(
+        f"{menu_text}\n\n🔽 Wähle eine Option: 🔽",
+        reply_markup=reply_markup
+    )
 
-async def button_click(update: Update, context: CallbackContext):
-    """ Verarbeitet Klicks auf die Inline-Buttons. """
+    # Nachricht nach Auswahl automatisch löschen
+    context.user_data['last_message_id'] = message.message_id
+
+# Funktion zum Verarbeiten der Auswahl (Einzelbuchung/Event)
+async def handle_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
-    await query.answer()
+    chat_id = query.message.chat.id
 
-    if query.data == "single":
-        await query.message.edit_text("📅 Einzelbuchung gewählt. Weiterleitung folgt...")
-    elif query.data == "event":
-        await query.message.edit_text("🎉 Event-Buchung gewählt. Weiterleitung folgt...")
+    # Lösche die Nachricht in der Gruppe
+    try:
+        await context.bot.delete_message(chat_id, query.message.message_id)
+    except Exception as e:
+        logger.warning(f"Fehler beim Löschen der Nachricht: {e}")
 
-    # Nachricht nach der Auswahl löschen
-    await context.bot.delete_message(chat_id=user_id, message_id=query.message.message_id)
+    # Weiterleitung in den privaten Chat
+    if query.data == "single_booking":
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="📅 Einzelbuchung gestartet! Wähle dein Datum und deine Uhrzeit."
+        )
+    elif query.data == "event_booking":
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="🎉 Eventbuchung gestartet! Wähle dein Event und sichere deinen Platz."
+        )
 
+# Hauptfunktion zum Starten des Bots
 def main():
-    """ Startet den Bot mit allen Befehlen. """
-    app = Application.builder().token(BOT_TOKEN).build()
+    application = Application.builder().token(BOT_TOKEN).build()
 
-    # Befehl `/start` registrieren → Menü wird automatisch gezeigt
-    app.add_handler(CommandHandler("start", start))
+    # Befehl-Handler
+    application.add_handler(CommandHandler("termin", termin))
+    
+    # Auswahl-Handler (Einzelbuchung/Event)
+    application.add_handler(CallbackQueryHandler(handle_selection, pattern="^(single_booking|event_booking)$"))
 
-    # Callback-Handler für Buttons
-    app.add_handler(CallbackQueryHandler(button_click))
-
-    # Bot starten
-    logger.info("🤖 Bot läuft...")
-    app.run_polling()
+    logger.info("Bot gestartet... 🚀")
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
