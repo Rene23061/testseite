@@ -1,76 +1,90 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import CallbackContext
-from database import update_admin_settings, get_admin_settings
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler
+from database import is_admin, set_menu_text, get_menu_text
 
-def open_admin_panel(update: Update, context: CallbackContext):
-    """ Zeigt das Admin-Panel mit Optionen an. """
-    user_id = update.message.chat_id
-    settings = get_admin_settings(user_id)
+# Admin-Panel anzeigen
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
 
-    if not settings:
-        update.message.reply_text("❌ Du hast keine Admin-Berechtigung!")
+    # Prüfen, ob der Nutzer ein Admin ist
+    if not is_admin(user_id):
+        await update.message.reply_text("🚫 Zugriff verweigert. Du bist kein Admin!")
         return
+    
+    # Aktuelle Menütexte abrufen
+    menu_text, button_single, button_event = get_menu_text(chat_id)
 
     keyboard = [
-        [InlineKeyboardButton("📜 Begrüßungstext ändern", callback_data="edit_text")],
-        [InlineKeyboardButton("🖼 Bild ändern", callback_data="edit_image")],
-        [InlineKeyboardButton("🔘 Button-Namen ändern", callback_data="edit_buttons")],
-        [InlineKeyboardButton("❌ Schließen", callback_data="close_admin")]
+        [InlineKeyboardButton("📝 Begrüßungstext ändern", callback_data="change_text")],
+        [InlineKeyboardButton("📅 Einzelbuchung-Button ändern", callback_data="change_single")],
+        [InlineKeyboardButton("🎉 Eventbuchung-Button ändern", callback_data="change_event")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    update.message.reply_text(
-        f"⚙️ Admin-Panel ⚙️\n\n"
-        f"📝 Begrüßungstext: {settings['welcome_text']}\n"
-        f"🖼 Bild: {settings['image_url']}\n"
-        f"🔘 Einzelbuchung: {settings['button_single']}\n"
-        f"🔘 Eventbuchung: {settings['button_event']}",
-        reply_markup=reply_markup
+    await update.message.reply_text(
+        f"⚙️ <b>Admin-Panel</b>\n\n"
+        f"📜 Begrüßungstext: <i>{menu_text}</i>\n"
+        f"📅 Einzelbuchung: <i>{button_single}</i>\n"
+        f"🎉 Eventbuchung: <i>{button_event}</i>\n\n"
+        "Wähle eine Option, um Änderungen vorzunehmen:",
+        reply_markup=reply_markup,
+        parse_mode="HTML"
     )
 
-def handle_admin_action(update: Update, context: CallbackContext):
-    """ Behandelt die Auswahl aus dem Admin-Panel. """
+# Callback-Handler für Admin-Änderungen
+async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    user_id = query.from_user.id
+    chat_id = query.message.chat_id
 
-    if query.data == "edit_text":
-        query.edit_message_text("✏️ Sende den neuen Begrüßungstext.")
-        context.user_data["admin_edit"] = "text"
-
-    elif query.data == "edit_image":
-        query.edit_message_text("📷 Sende den neuen Bild-Link.")
-        context.user_data["admin_edit"] = "image"
-
-    elif query.data == "edit_buttons":
-        query.edit_message_text("🔘 Sende neue Namen für die Buttons (Einzel,Event) getrennt durch `,`.")
-        context.user_data["admin_edit"] = "buttons"
-
-    elif query.data == "close_admin":
-        query.edit_message_text("✅ Admin-Panel geschlossen.")
-
-def save_admin_change(update: Update, context: CallbackContext):
-    """ Speichert Änderungen der Admin-Einstellungen. """
-    user_id = update.message.chat_id
-    new_value = update.message.text
-
-    if "admin_edit" not in context.user_data:
+    if not is_admin(user_id):
+        await query.answer("🚫 Zugriff verweigert.", show_alert=True)
         return
 
-    setting_type = context.user_data.pop("admin_edit")
+    # Nachricht aktualisieren und Eingabeaufforderung senden
+    if query.data == "change_text":
+        context.user_data["admin_action"] = "text"
+        await query.message.edit_text("📝 Sende mir den neuen Begrüßungstext:")
+    elif query.data == "change_single":
+        context.user_data["admin_action"] = "single"
+        await query.message.edit_text("📅 Sende mir den neuen Text für den Einzelbuchung-Button:")
+    elif query.data == "change_event":
+        context.user_data["admin_action"] = "event"
+        await query.message.edit_text("🎉 Sende mir den neuen Text für den Eventbuchung-Button:")
 
-    if setting_type == "text":
-        update_admin_settings(user_id, "welcome_text", new_value)
-        update.message.reply_text("✅ Begrüßungstext aktualisiert!")
+# Admin-Nachrichten verarbeiten
+async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
 
-    elif setting_type == "image":
-        update_admin_settings(user_id, "image_url", new_value)
-        update.message.reply_text("✅ Bild aktualisiert!")
+    if not is_admin(user_id):
+        await update.message.reply_text("🚫 Zugriff verweigert.")
+        return
 
-    elif setting_type == "buttons":
-        buttons = new_value.split(",")
-        if len(buttons) == 2:
-            update_admin_settings(user_id, "button_single", buttons[0].strip())
-            update_admin_settings(user_id, "button_event", buttons[1].strip())
-            update.message.reply_text("✅ Buttons aktualisiert!")
-        else:
-            update.message.reply_text("⚠️ Falsches Format! Nutze: `Einzel,Event`.")
+    action = context.user_data.get("admin_action")
+    if not action:
+        await update.message.reply_text("⚠️ Keine aktive Änderung erkannt.")
+        return
+
+    new_text = update.message.text
+    menu_text, button_single, button_event = get_menu_text(chat_id)
+
+    # Text entsprechend der Admin-Interaktion speichern
+    if action == "text":
+        menu_text = new_text
+    elif action == "single":
+        button_single = new_text
+    elif action == "event":
+        button_event = new_text
+
+    set_menu_text(chat_id, menu_text, button_single, button_event)
+
+    await update.message.reply_text("✅ Änderungen gespeichert!")
+    context.user_data["admin_action"] = None  # Reset der Aktion
+
+# Admin-Befehle registrieren
+def register_admin_handlers(application):
+    application.add_handler(CommandHandler("admin", admin_panel))
+    application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern="^change_"))
+    application.add_handler(CommandHandler("text", handle_admin_text))
