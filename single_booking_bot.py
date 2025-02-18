@@ -1,19 +1,25 @@
-from telegram import Update
-from telegram.ext import ContextTypes
-from database import connect_db
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import CallbackContext
 
-async def book_single(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Funktion für Einzelbuchungen."""
-    user_id = update.message.from_user.id
-    group_id = update.message.chat.id
+def start_single_booking(update: Update, context: CallbackContext):
+    """ Zeigt die Einzelbuchungsauswahl an. """
+    keyboard = [
+        [InlineKeyboardButton("Bestätigen", callback_data="confirm_single")],
+        [InlineKeyboardButton("Abbrechen", callback_data="cancel_single")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-    conn = connect_db()
-    cursor = conn.cursor()
+    update.message.reply_text(
+        "Du hast eine Einzelbuchung gewählt. Bestätige bitte:",
+        reply_markup=reply_markup
+    )
 
-    cursor.execute("INSERT INTO bookings (user_id, group_id, date_time, status) VALUES (?, ?, datetime('now'), 'Offen')",
-                   (user_id, group_id))
-    conn.commit()
-    cursor.close()
-    conn.close()
+def handle_single_booking(update: Update, context: CallbackContext):
+    """ Reagiert auf die Auswahl. """
+    query = update.callback_query
+    query.answer()
 
-    await update.message.reply_text("✅ Einzelbuchung wurde erfolgreich registriert!")
+    if query.data == "confirm_single":
+        query.edit_message_text("✅ Einzelbuchung bestätigt!")
+    elif query.data == "cancel_single":
+        query.edit_message_text("❌ Einzelbuchung abgebrochen.")
