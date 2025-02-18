@@ -1,9 +1,9 @@
 import logging
 import requests
-import BOT_TOKEN
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from database import add_user, get_menu_text, is_admin
+from config import BOT_TOKEN  # Token wird aus config.py geladen
 
 # Logging einrichten
 logging.basicConfig(
@@ -75,7 +75,7 @@ async def booking_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 # Hauptfunktion zum Starten des Bots
 def main():
-    application = Application.builder().token("DEIN_BOT_TOKEN").build()
+    application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(booking_selection, pattern="^(single_booking|event_booking)$"))
