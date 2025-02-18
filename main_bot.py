@@ -21,7 +21,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # Nutzer zur Datenbank hinzufügen (falls nicht vorhanden)
-    add_user(user_id, group_id, is_admin=is_admin(user_id, group_id))
+    add_user(user_id, group_id, is_admin=is_admin(user_id))
 
     # Prüfen, ob Nutzer Admin ist
     if is_admin(user_id, group_id):
