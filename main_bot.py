@@ -1,86 +1,100 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 import logging
-from database import add_user, get_menu_data
-from config import BOT_TOKEN
-import requests  # Zum Überprüfen der Bild-URL
+import sqlite3
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackContext
 
-# Logging einrichten
+# Logging aktivieren
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Standardwerte, falls nichts in der Datenbank hinterlegt ist
-DEFAULT_IMAGE = "https://yourserver.com/no_image.jpg"
-DEFAULT_TEXT = "Willkommen! Bitte wähle eine Option:"
+# Verbindung zur SQLite-Datenbank herstellen
+DB_PATH = "eventbot.db"  # Pfad zur SQLite-Datenbank
 
-# Funktion zur Überprüfung, ob die Bild-URL gültig ist
-def is_valid_image(url):
+def connect_db():
+    """Verbindet sich mit der SQLite-Datenbank."""
+    return sqlite3.connect(DB_PATH)
+
+# Admin-Check Funktion
+async def is_admin(update: Update, context: CallbackContext) -> bool:
+    """Prüft, ob der Benutzer ein Admin in der Gruppe ist."""
+    user_id = update.effective_user.id
+    chat_id = update.message.chat.id
+
     try:
-        response = requests.head(url, timeout=5)
-        content_type = response.headers.get("Content-Type", "")
-        return response.status_code == 200 and "image" in content_type
-    except Exception:
+        chat_admins = await context.bot.get_chat_administrators(chat_id)
+        return any(admin.user.id == user_id for admin in chat_admins)
+    except Exception as e:
+        logger.error(f"Fehler beim Abrufen der Admins: {e}")
         return False
 
-# Start im privaten Chat (nach Klick auf den Link)
-async def start_private(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
+# Begrüßungsnachricht mit Inline-Buttons
+async def start(update: Update, context: CallbackContext) -> None:
+    """Reagiert auf /start und leitet Nutzer ins Menü."""
     user_id = update.effective_user.id
+    chat_id = update.message.chat.id
 
-    # Nutzer zur Datenbank hinzufügen
-    add_user(user_id, chat_id)
+    if await is_admin(update, context):  # Prüft, ob der User ein Admin ist
+        await update.message.reply_text("👑 Willkommen im Admin-Panel!\nWähle eine Option:", reply_markup=admin_menu())
+    else:
+        await update.message.reply_text("📩 Bitte schreibe mir privat, um einen Termin zu buchen.", reply_markup=user_menu())
 
-    # Menü-Daten aus der Datenbank abrufen (Text, Bild, Button-Namen)
-    menu_text, menu_image, button_single, button_event = get_menu_data(chat_id)
-
-    # Falls kein Text oder Bild gespeichert wurde → Standardwert setzen
-    if not menu_text:
-        menu_text = DEFAULT_TEXT
-    if not menu_image or not is_valid_image(menu_image):
-        menu_image = DEFAULT_IMAGE  # Falls ungültig, Standardbild verwenden
-
-    # Inline-Buttons erstellen
+# Admin-Panel Buttons
+def admin_menu():
+    """Erstellt die Inline-Tastatur für das Admin-Panel."""
     keyboard = [
-        [InlineKeyboardButton(button_single, callback_data="single_booking")],
-        [InlineKeyboardButton(button_event, callback_data="event_booking")]
+        [InlineKeyboardButton("📜 Texte & Bilder", callback_data="admin_texts")],
+        [InlineKeyboardButton("📅 Termine verwalten", callback_data="admin_appointments")],
+        [InlineKeyboardButton("🔄 Schließen", callback_data="admin_close")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    return InlineKeyboardMarkup(keyboard)
 
-    # Begrüßungsnachricht mit Bild senden
-    try:
-        await context.bot.send_photo(
-            chat_id=chat_id,
-            photo=menu_image,
-            caption=menu_text,
-            reply_markup=reply_markup
-        )
-    except Exception as e:
-        logger.error(f"Fehler beim Senden des Bildes: {e}")
-        await context.bot.send_message(chat_id=chat_id, text=menu_text, reply_markup=reply_markup)
+# User-Menü Buttons
+def user_menu():
+    """Erstellt die Inline-Tastatur für normale Benutzer."""
+    keyboard = [
+        [InlineKeyboardButton("📆 Einzeltermin buchen", callback_data="book_single")],
+        [InlineKeyboardButton("🎉 Event buchen", callback_data="book_event")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
-# Auswahl im Menü (Einzel oder Event)
-async def menu_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Callback-Handler für Admin-Buttons
+async def admin_callback(update: Update, context: CallbackContext) -> None:
+    """Verarbeitet die Auswahl im Admin-Panel."""
     query = update.callback_query
-    chat_id = query.message.chat_id
+    await query.answer()
 
-    # Nutzer hat Einzel- oder Eventbuchung gewählt
-    if query.data == "single_booking":
-        await query.message.edit_caption("📅 Einzelbuchung ausgewählt! Weitere Schritte folgen…")
-    elif query.data == "event_booking":
-        await query.message.edit_caption("🎉 Eventbuchung ausgewählt! Weitere Schritte folgen…")
+    if query.data == "admin_texts":
+        await query.edit_message_text("📜 Hier kannst du Begrüßungstext & Bild ändern.")
+    elif query.data == "admin_appointments":
+        await query.edit_message_text("📅 Hier kannst du Termine verwalten.")
+    elif query.data == "admin_close":
+        await query.edit_message_text("🔄 Admin-Panel geschlossen.")
 
-# Hauptfunktion
+# Callback-Handler für User-Buttons
+async def user_callback(update: Update, context: CallbackContext) -> None:
+    """Verarbeitet die Auswahl im Benutzer-Menü."""
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "book_single":
+        await query.edit_message_text("📆 Einzeltermin gebucht! 🎉")
+    elif query.data == "book_event":
+        await query.edit_message_text("🎉 Eventbuchung bestätigt! 🎟")
+
+# Hauptfunktion zum Starten des Bots
 def main():
-    application = Application.builder().token(BOT_TOKEN).build()
+    """Startet den Bot."""
+    application = Application.builder().token("DEIN_BOT_TOKEN").build()
 
-    # Handler für den Start im privaten Chat
-    application.add_handler(CommandHandler("start", start_private))
+    # Befehle hinzufügen
+    application.add_handler(CommandHandler("start", start))
 
-    # Handler für die Menü-Auswahl
-    application.add_handler(CallbackQueryHandler(menu_selection, pattern="^(single_booking|event_booking)$"))
+    # Callback-Handler für Inline-Buttons
+    application.add_handler(CallbackQueryHandler(admin_callback, pattern="admin_.*"))
+    application.add_handler(CallbackQueryHandler(user_callback, pattern="book_.*"))
 
     logger.info("🤖 Bot läuft...")
     application.run_polling()
