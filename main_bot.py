@@ -1,7 +1,7 @@
 import logging
 import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, CallbackContext, CallbackQueryHandler
 
 # Logging aktivieren
 logging.basicConfig(
