@@ -1,14 +1,51 @@
 import logging
-from telegram import Update
+from telegram import Update, ChatMember
 from telegram.ext import Application, CommandHandler, CallbackContext
 from database import add_user, is_admin, get_group_id
 from config import BOT_TOKEN
 
-# Logging aktivieren (Debug-Modus)
+# Logging aktivieren
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.DEBUG  # DEBUG zeigt alle Meldungen an
 )
+
+async def check_admin_status(context: CallbackContext, group_id: int, user_id: int) -> bool:
+    """Prüft, ob ein Nutzer Admin oder Inhaber in der Gruppe ist."""
+    try:
+        chat_member = await context.bot.get_chat_member(group_id, user_id)
+        status = chat_member.status
+
+        logging.debug(f"[GRUPPENPRÜFUNG] User {user_id} hat den Status: {status}")
+
+        return status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]
+    except Exception as e:
+        logging.error(f"[GRUPPENPRÜFUNG] Fehler bei der Abfrage der Adminrechte: {e}")
+        return False
+
+async def starttermin(update: Update, context: CallbackContext) -> None:
+    """Wird in einer Gruppe aufgerufen, um die Gruppe zu registrieren."""
+    chat = update.effective_chat
+    user = update.effective_user
+    user_id = user.id
+    group_id = chat.id
+
+    logging.debug(f"[GRUPPE] Starttermin-Befehl von User-ID: {user_id} in Gruppe-ID: {group_id}")
+
+    admin_status = await check_admin_status(context, group_id, user_id)
+
+    if not admin_status:
+        logging.warning(f"[GRUPPE] @{user.username} (User-ID: {user_id}) ist kein Admin!")
+        await update.message.reply_text(f"🚫 @{user.username}, du bist kein Admin! Nur Admins können diesen Befehl ausführen.")
+        return
+
+    try:
+        add_user(user_id, group_id, is_admin=True)
+        logging.info(f"[Datenbank] Admin {user_id} erfolgreich in Gruppe {group_id} eingetragen.")
+        await update.message.reply_text("✅ Gruppe erfolgreich registriert und Admin eingetragen.")
+    except Exception as e:
+        logging.error(f"[Datenbank] Fehler beim Eintragen in DB: {e}")
+        await update.message.reply_text("❌ Fehler beim Eintragen in die Datenbank!")
 
 async def start(update: Update, context: CallbackContext) -> None:
     """ Startbefehl für Nutzer im privaten Chat mit Debugging. """
@@ -28,28 +65,6 @@ async def start(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text("✅ Willkommen Admin! Hier ist dein Admin-Panel.")
     else:
         await update.message.reply_text("👋 Willkommen! Hier sind deine verfügbaren Optionen.")
-
-async def starttermin(update: Update, context: CallbackContext) -> None:
-    """ Wird in einer Gruppe aufgerufen, um die Gruppe zu registrieren. """
-    chat = update.effective_chat
-    user = update.effective_user
-    user_id = user.id
-    group_id = chat.id
-
-    logging.debug(f"[GRUPPE] Starttermin-Befehl von User-ID: {user_id} in Gruppe-ID: {group_id}")
-
-    if not is_admin(user_id, group_id):
-        logging.warning(f"[GRUPPE] Kein Admin: @{user.username} (User-ID: {user_id}) wollte /starttermin ausführen!")
-        await update.message.reply_text(f"🚫 @{user.username}, du bist kein Admin! Nur Admins können diesen Befehl ausführen.")
-        return
-
-    try:
-        add_user(user_id, group_id, is_admin=True)
-        logging.info(f"[Datenbank] Admin {user_id} erfolgreich in Gruppe {group_id} eingetragen.")
-        await update.message.reply_text("✅ Gruppe erfolgreich registriert und Admin eingetragen.")
-    except Exception as e:
-        logging.error(f"[Datenbank] Fehler beim Eintragen in DB: {e}")
-        await update.message.reply_text("❌ Fehler beim Eintragen in die Datenbank!")
 
 def main() -> None:
     """ Startet den Telegram-Bot. """
