@@ -1,67 +1,49 @@
 import logging
 from telegram import Update
-from telegram.ext import Application, CommandHandler, CallbackContext
-from database import add_user, is_admin, get_group_id, add_group
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext
+from database import add_user, is_admin, add_group, get_group_id
 from config import BOT_TOKEN
 
-# Logging für Debugging aktivieren
-logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def start(update: Update, context: CallbackContext) -> None:
-    """Startet den Bot im Privat-Chat und zeigt je nach Status das Menü oder das Admin-Panel an."""
-    user_id = update.message.from_user.id
-    args = context.args
+async def starttermin(update: Update, context: CallbackContext) -> None:
+    """Nur Admins können die Gruppe registrieren"""
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
 
-    # Überprüfen, ob eine Gruppen-ID übergeben wurde
-    if args:
-        group_id = args[0]
-        logging.info(f"DEBUG: Erkannte group_id aus Start-Link: {group_id}")
-    else:
-        group_id = get_group_id(user_id)
+    # Admin-Check
+    if not await is_admin(user_id, chat_id, context):
+        await update.message.reply_text(f"⚠️ @{update.effective_user.username}, du bist kein Admin und kannst /starttermin nicht nutzen!")
+        return
+    
+    # Gruppe und Admin speichern
+    add_group(chat_id, user_id, "Gruppe")
+    add_user(user_id, chat_id, True)
+
+    await update.message.reply_text("✅ Gruppe wurde erfolgreich registriert und du bist als Admin eingetragen!")
+
+async def start(update: Update, context: CallbackContext) -> None:
+    """Prüft, ob User aus einer registrierten Gruppe kommt"""
+    user_id = update.effective_user.id
+    group_id = get_group_id(user_id)
 
     if not group_id:
         await update.message.reply_text("⚠️ Du bist nicht mit einer registrierten Gruppe verknüpft. Bitte nutze den Bot über eine Gruppe!")
         return
 
     if is_admin(user_id, group_id):
-        await update.message.reply_text("🔧 Admin-Panel geöffnet!")
-        show_admin_panel(update, context)
+        await update.message.reply_text("📢 Admin-Panel wird geladen...")
+        # Hier könnte das Admin-Menü geöffnet werden
     else:
-        await update.message.reply_text("📅 Willkommen! Hier sind deine Optionen:")
-        show_user_menu(update, context)
-
-async def starttermin(update: Update, context: CallbackContext) -> None:
-    """Wird in der Gruppe vom Admin ausgeführt, um die Gruppe und den Admin in der DB zu speichern."""
-    chat_id = update.message.chat.id
-    user_id = update.message.from_user.id
-    group_name = update.message.chat.title
-
-    # Überprüfung, ob der User Admin ist
-    if not is_admin(user_id, chat_id):
-        await update.message.reply_text(f"⚠️ {update.message.from_user.username}, du bist kein Admin!")
-        return
-
-    # Gruppe und Admin speichern
-    add_group(chat_id, user_id, group_name)
-    add_user(user_id, chat_id, True)
-
-    await update.message.reply_text("✅ Gruppe und Admin erfolgreich registriert!")
-
-def show_admin_panel(update: Update, context: CallbackContext):
-    """Zeigt das Admin-Panel mit Verwaltungsoptionen."""
-    update.message.reply_text("🔧 Admin-Panel: Hier kannst du deine Einstellungen verwalten.")
-
-def show_user_menu(update: Update, context: CallbackContext):
-    """Zeigt das User-Menü mit Terminoptionen."""
-    update.message.reply_text("📅 Dein Benutzer-Menü mit Buchungsmöglichkeiten.")
+        await update.message.reply_text("📅 Termine werden geladen...")
+        # Hier könnten Termine geladen werden
 
 def main():
-    """Startet den Bot."""
-    application = Application.builder().token(BOT_TOKEN).build()
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("starttermin", starttermin))
+    application.add_handler(CommandHandler("start", start))
 
     application.run_polling()
 
