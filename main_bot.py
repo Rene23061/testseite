@@ -1,51 +1,61 @@
-import logging
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext
-from database import add_user, is_admin, add_group, get_group_id
-from config import BOT_TOKEN
+import sqlite3
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+DB_PATH = "/root/eventbot/eventbot.db"
 
-async def starttermin(update: Update, context: CallbackContext) -> None:
-    """Nur Admins können die Gruppe registrieren"""
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
+def get_db_connection():
+    """Erstellt eine Verbindung zur Datenbank."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-    # Admin-Check
-    if not await is_admin(user_id, chat_id, context):
-        await update.message.reply_text(f"⚠️ @{update.effective_user.username}, du bist kein Admin und kannst /starttermin nicht nutzen!")
-        return
+def add_user(user_id, group_id, is_admin):
+    """Fügt einen Nutzer hinzu oder aktualisiert den Admin-Status."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT OR REPLACE INTO users (user_id, group_id, is_admin)
+        VALUES (?, ?, ?)
+    """, (user_id, group_id, is_admin))
+
+    conn.commit()
+    conn.close()
+
+def is_admin(user_id, group_id, context):
+    """Prüft zuerst in Telegram, dann in der Datenbank, ob der User Admin ist."""
+    try:
+        member = context.bot.get_chat_member(group_id, user_id)
+        if member.status in ['administrator', 'creator']:
+            return True
+    except:
+        pass
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT is_admin FROM users WHERE user_id = ? AND group_id = ?", (user_id, group_id))
+    result = cursor.fetchone()
+    conn.close()
+
+    return result["is_admin"] if result else False
+
+def get_group_id(user_id):
+    """Gibt die Gruppen-ID eines Nutzers zurück, falls vorhanden."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT group_id FROM users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    conn.close()
     
-    # Gruppe und Admin speichern
-    add_group(chat_id, user_id, "Gruppe")
-    add_user(user_id, chat_id, True)
+    return result["group_id"] if result else None
 
-    await update.message.reply_text("✅ Gruppe wurde erfolgreich registriert und du bist als Admin eingetragen!")
-
-async def start(update: Update, context: CallbackContext) -> None:
-    """Prüft, ob User aus einer registrierten Gruppe kommt"""
-    user_id = update.effective_user.id
-    group_id = get_group_id(user_id)
-
-    if not group_id:
-        await update.message.reply_text("⚠️ Du bist nicht mit einer registrierten Gruppe verknüpft. Bitte nutze den Bot über eine Gruppe!")
-        return
-
-    if is_admin(user_id, group_id):
-        await update.message.reply_text("📢 Admin-Panel wird geladen...")
-        # Hier könnte das Admin-Menü geöffnet werden
-    else:
-        await update.message.reply_text("📅 Termine werden geladen...")
-        # Hier könnten Termine geladen werden
-
-def main():
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    application.add_handler(CommandHandler("starttermin", starttermin))
-    application.add_handler(CommandHandler("start", start))
-
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
+def add_group(group_id, owner_id, group_name):
+    """Fügt eine Gruppe zur Datenbank hinzu."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR IGNORE INTO groups (group_id, owner_id, group_name)
+        VALUES (?, ?, ?)
+    """, (group_id, owner_id, group_name))
+    
+    conn.commit()
+    conn.close()
